@@ -1,7 +1,7 @@
 <application>
   <component name="FindSettings">
-    <option name="customScope" value="File '.../haproxy_config.py'" />
-    <option name="defaultScopeName" value="File '.../haproxy_config.py'" />
-    <option name="SEARCH_SCOPE" value="File '.../haproxy_config.py'" />
+    <option name="customScope" value="File '.../s3-migration_rclone.sh'" />
+    <option name="defaultScopeName" value="File '.../s3-migration_rclone.sh'" />
+    <option name="SEARCH_SCOPE" value="File '.../s3-migration_rclone.sh'" />
   </component>
 </application>
