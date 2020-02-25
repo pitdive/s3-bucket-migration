@@ -1,9 +1,9 @@
 #!/bin/bash
-# Peter Long - Jan 2020
+# Peter Long - Feb 2020
 # Disclaimer / Warning
 # Use this tool with precautions (review the config file created manually for a double-check) for your environment : it is NOT an official tool supported by Cloudian.
 # Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. So you are using it at your own risks and be aware of the restrictions.
-# v1.0b
+# v1.1b
 # rclone-1.50.2.194.gbfd9f321.beta-1.x86_64
 
 ## VARIABLES ##
@@ -38,10 +38,12 @@ Agree()
 Purge()
 {
     echo -e "Purging the bucket : " $1 "\nNeed to connect to the cluster by using SSH and root access..."
-    NODE=`cat ${CONFIG} | grep "endpoint" | awk -F'/' '{ print $3}'`
+    NODE=`cat ${CONFIG} | grep "puppet" | awk -F'=' '{print $2}' | sed 's/ //g' `
     CURL="curl --silent -X POST -ku sysadmin:"${PASSWORD}
     CURL=${CURL}" 'https://localhost:19443/bucketops/purge?bucketName="$1" ' "
-    ssh ${NODE} ${CURL}
+    ssh root@${NODE} ${CURL}
+    echo -e "Waiting a couple of seconds to apply changes ..."
+    sleep 5
 }
 
 # Basic tests
@@ -94,6 +96,7 @@ case ${OPERATION} in
         read -r -p "Please provide the SecretKey for the migration : " SECRETKEY
         read -r -p "Please provide the s3 EndPoint for the migration (example : http://s3-region.domainname) : " S3ENDPOINT
         echo -e "access_key_id = "$ACCESSKEY "\nsecret_access_key = "$SECRETKEY"\nendpoint = "$S3ENDPOINT >> $CONFIG
+        ################### TO DO : PUPPET LOCATION @IP #####################################################################################""
         echo -e "Configuration done.\n You can now proceed with the 'sync' command : \033[31m" $0 "-c sync -b <bucketname>\033[0m"
     ;;
     "sync")
