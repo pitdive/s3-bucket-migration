@@ -3,7 +3,7 @@
 # Disclaimer / Warning
 # Use this tool with precautions (review the config file created manually for a double-check) for your environment : it is NOT an official tool supported by Cloudian.
 # Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. So you are using it at your own risks and be aware of the restrictions.
-# v1.3b
+# v1.3.1b
 # s3cmd/s4cmd
 
 ## VARIABLES ##
@@ -56,21 +56,30 @@ Purge()
 
 Configure()
 {
-       if [[ ! -f "${S3CMD_ONLY}" ]] || [[ ! -f "${S4CMD_ONLY}" ]]
-            then echo -e "\n--> Error. You must install the necessary tools before using this script. <--" && exit 1
+    if [[ ! -f "${S3CMD_ONLY}" ]] || [[ ! -f "${S4CMD_ONLY}" ]]
+        then echo -e "\n--> Error. You must install the necessary tools before using this script. <--" && exit 1
+    fi
+    ${S3CMD} --configure --config ${CONFIG} --no-check-certificate --no-check-hostname --signature-v2
+    if [ ! $? -eq 0 ]
+       then echo -e "\n--> Error the config file CAN'T be set. Please, review the configuration. <--" && exit 1
+    fi
+    read -r -p "Please provide the @IP or name of the Cloudian puppet master : " PUPPET
+    echo -e "Adding config into : " ${CONFIG}
+    echo "puppet="$PUPPET >> ${CONFIG}
+    ping -c 2 $PUPPET
+    if [ ! $? -eq 0 ]
+       then echo -e "\n--> Error the node seems not reachable. Please, check it and re-run the configuration. <--" && exit 1
+    else
+        if [ `ls ~/.ssh/*.pub | wc -l` -gt 0 ]
+        then
+            ssh-copy-id root@$PUPPET
+        else
+            ssh-keygen
+            ssh-copy-id root@$PUPPET
         fi
-        ${S3CMD} --configure --config ${CONFIG} --no-check-certificate --no-check-hostname --signature-v2
-        if [ ! $? -eq 0 ]
-            then echo -e "\n--> Error the config file CAN'T be set. Please, review the configuration. <--" && exit 1
-        fi
-        read -r -p "Please provide the @IP or name of the Cloudian puppet master : " PUPPET
-        echo -e "Adding config into : " ${CONFIG}
-        echo "puppet="$PUPPET >> ${CONFIG}
-        ping -c 2 $PUPPET
-        if [ ! $? -eq 0 ]
-            then echo -e "\n--> Error the node seems not reachable. Please, check it and re-run the configuration. <--" && exit 1
-        fi
-        echo -e "Configuration done.\n You can now proceed with the 'sync' command : \033[31m" ${SCRIPTNAME} "-c sync -b <bucketname>\033[0m"
+    fi
+    echo -e "Configuration done.\n You can now proceed with the 'sync' command : \033[31m" ${SCRIPTNAME} "-c sync -b <bucketname>\033[0m"
+    echo -e " OR with the automatic migration for multi-buckets with the command :  \033[31m" ${SCRIPTNAME} "-c auto -b <bucketname>\033[0m"
 }
 
 Sync()
@@ -123,23 +132,18 @@ Sync()
     echo -e "\nSize and number of objects for the buckets :"
     ${S3CMD} du ${PROVIDER}${BUCKETSRC} > ${LOGFILE}.src && cat ${LOGFILE}.src
     ${S3CMD} du ${PROVIDER}${BUCKETTEMPO} > ${LOGFILE}.tempo && cat ${LOGFILE}.tempo
-    #echo -e "Checking the content of the bucket is possible by using the command :"
-    #echo -e "\033[31m" $0 -c check $3 $4 "\033[0m\n"
     echo -e "\nSync is finished."
     echo -e "Please use reverse command.\033[31m" ${SCRIPTNAME} "-c reverse -b "${BUCKETSRC}"\033[0m"
 }
 
 Resync()
 {
-   echo -e "\n\033[31m--- RE-Synchronization from the bucket " ${BUCKETSRC} " to the bucket " ${BUCKETTEMPO} " : --- \033[0m"
+    echo -e "\n\033[31m--- RE-Synchronization from the bucket " ${BUCKETSRC} " to the bucket " ${BUCKETTEMPO} " : --- \033[0m"
     #Agree
     echo -e "\n*** ReSync in progress from the bucket " ${BUCKETSRC} " to the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE} 2>&1
     date >> ${LOGFILE}
     ${S4CMD} dsync ${PROVIDER}${BUCKETSRC} ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
     echo -e "Resync done."
-    #echo -e "\n\n Quick check if there are differences..."
-    #${S3CMD} --list-md5 ls ${PROVIDER}${BUCKETSRC}
-    #${S3CMD} --list-md5 ls ${PROVIDER}${BUCKETTEMPO}
 
     echo -e "\n*** Calculating objects and size ***" >> ${LOGFILE} 2>&1
     echo -e "Size and number of objects for the bucket " ${BUCKETSRC} >> ${LOGFILE} 2>&1
@@ -147,8 +151,6 @@ Resync()
     echo -e "\nSize and number of objects for the bucket " ${BUCKETTEMPO} >> ${LOGFILE} 2>&1
     ${S3CMD} du ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
 
-    #echo -e "Checking the content of the bucket is possible by using the command :"
-    #echo -e "\033[31m" $0 -c check $3 $4 "\033[0m\n"
     echo -e "Re-Sync is finished."
     echo -e "Please use reverse command.\033[31m" ${SCRIPTNAME} "-c reverse -b "${BUCKETSRC}"\033[0m"
 }
@@ -162,9 +164,9 @@ Check()
     echo -e "\n*** MD5 calculations ***" >> ${LOGFILE} 2>&1
     date >> ${LOGFILE}
     echo -e "---------- BUCKET " ${BUCKETSRC} " ----------" >> ${LOGFILE} 2>&1
-    ${S3CMD} --list-md5 ls ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
+    ${S3CMD} --recursive --list-md5 ls ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
     echo -e "---------- BUCKET " ${BUCKETTEMPO} " ----------" >> ${LOGFILE} 2>&1
-    ${S3CMD} --list-md5 ls ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
+    ${S3CMD} --recursive --list-md5 ls ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
     echo -e "Done. All checksums are in the log file : " ${LOGFILE}
     echo -e "\nto continue with the process, you can adjust the protection policy on Cloudian - default policy will be selected"
     echo -e "Then, use reverse command.\033[31m" ${SCRIPTNAME} "-c reverse -b "${BUCKETSRC}"\033[0m"
@@ -206,10 +208,6 @@ Copyback()
     echo -e "\nSize and number of objects for the buckets :" ${BUCKETSRC}
     ${S3CMD} du ${PROVIDER}${BUCKETSRC} > ${LOGFILE}.src && cat ${LOGFILE}.src
     ${S3CMD} du ${PROVIDER}${BUCKETTEMPO} > ${LOGFILE}.tempo && cat ${LOGFILE}.tempo
-    #echo -e "---------- BUCKET " ${BUCKETSRC} " ----------" >> ${LOGFILE} 2>&1
-    #${S3CMD} --list-md5 ls ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
-    #echo -e "---------- BUCKET " ${BUCKETTEMPO} " ----------" >> ${LOGFILE} 2>&1
-    #${S3CMD} --list-md5 ls ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
     echo -e "\nDone."
     echo -e "Then, use the command : \033[31m" ${SCRIPTNAME} "-c clean -b "${BUCKETSRC}"\033[0m"
 }
@@ -301,7 +299,6 @@ case ${OPERATION} in
         for NUMBER in ${HOWMANY}
         do
             BUCKETSRC=$NUMBER
-            echo $BUCKETSRC
             Sync
             IsError
             Check
