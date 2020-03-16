@@ -1,7 +1,0 @@
-<application>
-  <component name="FindSettings">
-    <option name="customScope" value="File '.../s3-migration_rclone.sh'" />
-    <option name="defaultScopeName" value="File '.../s3-migration_rclone.sh'" />
-    <option name="SEARCH_SCOPE" value="File '.../s3-migration_rclone.sh'" />
-  </component>
-</application>
