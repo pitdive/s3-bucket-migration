@@ -3,7 +3,7 @@
 # Disclaimer / Warning
 # Use this tool with precautions (review the config file created manually for a double-check) for your environment : it is NOT an official tool supported by Cloudian.
 # Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. So you are using it at your own risks and be aware of the restrictions.
-# v1.3.1b
+# v1.3.2b
 # s3cmd/s4cmd
 
 ## VARIABLES ##
@@ -15,6 +15,8 @@ OPT="--config="${CONFIG}
 #CMD=${S3CMD}" "${OPT}
 S3CMD=${S3CMD_ONLY}" "${OPT}
 PROVIDER="s3://"
+# Rubrik parameter for the MPU
+MPU_SIZE=67108864
 # Change the Admin API password if needed
 PASSWORD="public"
 SCRIPTNAME=$0
@@ -99,9 +101,9 @@ Sync()
     if [ ! -f ${LOGFILE} ]
     then
         echo -e "\n\033[31mCreating a new logfile : " ${LOGFILE} " in the current directory.\033[0m"
-        echo -e "Migration of " $BUCKETSRC " is starting ... --->>>" > ${LOGFILE} 2>&1
+        echo -e "Migration of " $BUCKETSRC " is starting ... --->>>" > ${LOGFILE}
     fi
-    echo -e "*** Preparation before SYNC  ***" >> ${LOGFILE} 2>&1
+    echo -e "*** Preparation before SYNC  ***" >> ${LOGFILE}
     date >> ${LOGFILE}
     BUCKETTEMPO=${BUCKETSRC}"-tempo"
     echo -e "\nCreation of a temporary bucket to migrate firstly the data ... : " ${BUCKETTEMPO}
@@ -116,18 +118,18 @@ Sync()
     echo -e "--- Synchronization from the bucket " ${BUCKETSRC} " to the bucket " ${BUCKETTEMPO} " : ---"
     echo -e "\n*** Sync in progress  ***" >> ${LOGFILE} 2>&1
     ${S4CMD} dsync ${PROVIDER}${BUCKETSRC} ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1 &
-    while [[ ! `ps -ef | grep s4cmd | grep migration` = "" ]]
+    while [[ ! `ps -ef | grep ${S4CMD_ONLY} | grep ${BUCKETSRC}` = "" ]]
     do
         echo -ne "#"
         sleep 2
     done
-    echo -e "\n*** Get the content of the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE} 2>&1
+    echo -e "\n*** Get the content of the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE}
     ${S3CMD} ls ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
 
-    echo -e "\n*** Calculating objects and size ***" >> ${LOGFILE} 2>&1
-    echo -e "Size and number of objects for the buckets " ${BUCKETSRC} >> ${LOGFILE} 2>&1
+    echo -e "\n*** Calculating objects and size ***" >> ${LOGFILE}
+    echo -e "Size and number of objects for the buckets " ${BUCKETSRC} >> ${LOGFILE}
     ${S3CMD} du ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
-    echo -e "\nSize and number of objects for the bucket " ${BUCKETTEMPO} >> ${LOGFILE} 2>&1
+    echo -e "\nSize and number of objects for the bucket " ${BUCKETTEMPO} >> ${LOGFILE}
     ${S3CMD} du ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
     echo -e "\nSize and number of objects for the buckets :"
     ${S3CMD} du ${PROVIDER}${BUCKETSRC} > ${LOGFILE}.src && cat ${LOGFILE}.src
@@ -140,15 +142,20 @@ Resync()
 {
     echo -e "\n\033[31m--- RE-Synchronization from the bucket " ${BUCKETSRC} " to the bucket " ${BUCKETTEMPO} " : --- \033[0m"
     #Agree
-    echo -e "\n*** ReSync in progress from the bucket " ${BUCKETSRC} " to the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE} 2>&1
+    echo -e "\n*** ReSync in progress from the bucket " ${BUCKETSRC} " to the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE}
     date >> ${LOGFILE}
-    ${S4CMD} dsync ${PROVIDER}${BUCKETSRC} ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
+    ${S4CMD} dsync ${PROVIDER}${BUCKETSRC} ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1 &
+    while [[ ! `ps -ef | grep ${S4CMD_ONLY} | grep ${BUCKETSRC}` = "" ]]
+    do
+        echo -ne "#"
+        sleep 2
+    done
     echo -e "Resync done."
 
-    echo -e "\n*** Calculating objects and size ***" >> ${LOGFILE} 2>&1
-    echo -e "Size and number of objects for the bucket " ${BUCKETSRC} >> ${LOGFILE} 2>&1
+    echo -e "\n*** Calculating objects and size ***" >> ${LOGFILE}
+    echo -e "Size and number of objects for the bucket " ${BUCKETSRC} >> ${LOGFILE}
     ${S3CMD} du ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
-    echo -e "\nSize and number of objects for the bucket " ${BUCKETTEMPO} >> ${LOGFILE} 2>&1
+    echo -e "\nSize and number of objects for the bucket " ${BUCKETTEMPO} >> ${LOGFILE}
     ${S3CMD} du ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
 
     echo -e "Re-Sync is finished."
@@ -161,24 +168,24 @@ Check()
     #Agree
     echo -e "MD5 calculations for " ${BUCKETSRC} " and " ${BUCKETTEMPO}
     echo -e "This might take long time and might use a lot of ressources ... depending on the structure of the buckets"
-    echo -e "\n*** MD5 calculations ***" >> ${LOGFILE} 2>&1
+    echo -e "\n*** MD5 calculations ***" >> ${LOGFILE}
     date >> ${LOGFILE}
-    echo -e "---------- BUCKET " ${BUCKETSRC} " ----------" >> ${LOGFILE} 2>&1
-    ${S3CMD} --recursive --list-md5 ls ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
-    echo -e "---------- BUCKET " ${BUCKETTEMPO} " ----------" >> ${LOGFILE} 2>&1
-    ${S3CMD} --recursive --list-md5 ls ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
+    echo -e "---------- BUCKET " ${BUCKETSRC} " ----------" >> ${LOGFILE}
+    ${S3CMD} --recursive --list-md5 ls ${PROVIDER}${BUCKETSRC} > ${LOGFILE}.src.md5
+    cat ${LOGFILE}.src.md5 >> ${LOGFILE}
+    echo -e "---------- BUCKET " ${BUCKETTEMPO} " ----------" >> ${LOGFILE}
+    ${S3CMD} --recursive --list-md5 ls ${PROVIDER}${BUCKETTEMPO} > ${LOGFILE}.tempo.md5
+    cat ${LOGFILE}.tempo.md5 >> ${LOGFILE}
     echo -e "Done. All checksums are in the log file : " ${LOGFILE}
-    echo -e "\nto continue with the process, you can adjust the protection policy on Cloudian - default policy will be selected"
-    echo -e "Then, use reverse command.\033[31m" ${SCRIPTNAME} "-c reverse -b "${BUCKETSRC}"\033[0m"
 }
 
 Reverse()
 {
     echo -e "\n\033[31m--- Reverse the operations from the bucket : " ${BUCKETTEMPO} " ---\033[0m"
     #Agree
-    echo -e "\n*** Reverse in progress for the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE} 2>&1
+    echo -e "\n*** Reverse in progress for the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE}
     date >> ${LOGFILE}
-    echo -e "Purging the bucket : " ${BUCKETSRC} >> ${LOGFILE} 2>&1
+    echo -e "Purging the bucket : " ${BUCKETSRC} >> ${LOGFILE}
     Purge ${BUCKETSRC}
     ${S3CMD} --force rb ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
     echo -e "Creating a new bucket : " ${BUCKETSRC}
@@ -191,19 +198,19 @@ Copyback()
 {
     echo -e "\n\033[31m--- Copy-back from the bucket : " ${BUCKETTEMPO} " to the bucket : " ${BUCKETSRC} " ---\033[0m"
     #Agree
-    echo -e "\n*** Copy-Back in progress from the bucket " ${BUCKETTEMPO} " to the bucket " ${BUCKETSRC} " ***" >> ${LOGFILE} 2>&1
+    echo -e "\n*** Copy-Back in progress from the bucket " ${BUCKETTEMPO} " to the bucket " ${BUCKETSRC} " ***" >> ${LOGFILE}
     date >> ${LOGFILE}
     echo -e "Copy-back in progress ..."
     ${S4CMD} dsync ${PROVIDER}${BUCKETTEMPO} ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1 &
-    while [[ ! `ps -ef | grep s4cmd | grep migration` = "" ]]
+    while [[ ! `ps -ef | grep ${S4CMD_ONLY} | grep ${BUCKETSRC}` = "" ]]
     do
         echo -ne "#"
         sleep 2
     done
-    echo -e "\n*** Calculating objects and size ***" >> ${LOGFILE} 2>&1
-    echo -e "Size and number of objects for the bucket " ${BUCKETSRC} >> ${LOGFILE} 2>&1
+    echo -e "\n*** Calculating objects and size ***" >> ${LOGFILE}
+    echo -e "Size and number of objects for the bucket " ${BUCKETSRC} >> ${LOGFILE}
     ${S3CMD} du ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
-    echo -e "\nSize and number of objects for the bucket " ${BUCKETTEMPO} >> ${LOGFILE} 2>&1
+    echo -e "\nSize and number of objects for the bucket " ${BUCKETTEMPO} >> ${LOGFILE}
     ${S3CMD} du ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
     echo -e "\nSize and number of objects for the buckets :" ${BUCKETSRC}
     ${S3CMD} du ${PROVIDER}${BUCKETSRC} > ${LOGFILE}.src && cat ${LOGFILE}.src
@@ -216,32 +223,58 @@ Clean()
 {
     echo -e "\n\033[31m--- Cleanup and deletion of non-necessary objects + bucket... ---\033[0m"
     #Agree
-    echo -e "\n*** Cleanup in progress from the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE} 2>&1
+    echo -e "\n*** Cleanup in progress from the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE}
     date >> ${LOGFILE}
-    echo -e "Purging the bucket : " ${BUCKETTEMPO} >> ${LOGFILE} 2>&1
+    echo -e "Purging the bucket : " ${BUCKETTEMPO} >> ${LOGFILE}
     Purge ${BUCKETTEMPO}
     ${S3CMD} rb ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
-    echo -e "<<<--- *** Job done ***" >> ${LOGFILE} 2>&1
+    echo -e "<<<--- *** Job done ***" >> ${LOGFILE}
+    echo -e "Cleaning unnecessary log files ..."
     rm ${LOGFILE}.src ${LOGFILE}.tempo
+    rm ${LOGFILE}.src.onlyhash ${LOGFILE}.tempo.onlyhash
+    rm ${LOGFILE}.src.md5 ${LOGFILE}.tempo.md5
     echo -e "Job done. Nothing else to do."
     echo -e "\033[31mPlease resume the Archival Location matching the current migration \033[0m"
 }
 
 IsError()
 {
+    # First check : the #objects and size
     SRC=`cat ${LOGFILE}.src | awk -F' ' '{print $1 " " $2}'`
     TEMPO=`cat ${LOGFILE}.tempo | awk -F' ' '{print $1 " " $2}'`
     if [[ ${SRC} != ${TEMPO} ]]
     then
-        echo -e "\n--> Error on the bucket name. Please check and retry ... <--"
+        echo -e "\n--> Error the bucket contents are different ! Please check and retry ... <--"
         exit 1
+    fi
+    # Second check : the MD5 hash
+    if [ -f "${LOGFILE}.src.md5" ]
+    then
+        cat ${LOGFILE}.src.md5 | awk '{print $4}' > ${LOGFILE}.src.onlyhash
+        cat ${LOGFILE}.tempo.md5 | awk '{print $4}' > ${LOGFILE}.tempo.onlyhash
+        TEMPO=`diff ${LOGFILE}.src.onlyhash ${LOGFILE}.tempo.onlyhash`
+        if [[ -z ${TEMPO} ]]
+        then
+            echo -e "\n Hashs are good, let's continue ..."
+            echo -e "\n*** There is no error on #objects, bucket size and MD5 hashs ***" >> ${LOGFILE}
+        else
+            echo -e "\n--> Error the objects hashs are different ! Stopping now, please check and retry ... <--"
+            echo -e "\n--> There IS somes errors on #objects, bucket size and MD5 hashs --> STOP the migration <--" >> ${LOGFILE}
+            exit 1
+        fi
     fi
 }
 
 HowMany()
 {
     BUCKET=`echo ${BUCKETSRC} | sed "s/.$//"`
-    HOWMANY=`${S3CMD} ls ${PROVIDER} | awk -F${PROVIDER} '{print $2}' | grep $BUCKET`
+    HOWMANY=`${S3CMD} ls ${PROVIDER} | awk -F${PROVIDER} '{print $2 " "}' | grep $BUCKET`
+    echo -e "\n- We will plan to migrate this : -\n"
+    for NUMBER in ${HOWMANY}
+    do
+        echo -e " --> " ${NUMBER}
+    done
+    echo -e "\n- End of listing -"
 }
 
 # Basic tests
@@ -280,7 +313,7 @@ then
     SECRET_KEY=`grep secret_key ${CONFIG} | awk -F'=' '{print $2}' | sed 's/ //g'`
     ENDPOINT=`grep host_base ${CONFIG} | awk -F'=' '{print $2}' | sed 's/ //g'`
     ENDPOINT='http://'${ENDPOINT}
-    S4CMD=${S4CMD_ONLY}" --recursive --secret-key="${SECRET_KEY}" --access-key="${ACCESS_KEY}" --endpoint-url="${ENDPOINT}" --multipart-split-size=16777216"
+    S4CMD=${S4CMD_ONLY}" --recursive --secret-key="${SECRET_KEY}" --access-key="${ACCESS_KEY}" --endpoint-url="${ENDPOINT}" --multipart-split-size="${MPU_SIZE}" --max-singlepart-upload-size="${MPU_SIZE}
 fi
 
 # Disclaimer
@@ -294,25 +327,23 @@ case ${OPERATION} in
         Configure
     ;;
     "auto")
-        Agree
         HowMany
+        Agree
         for NUMBER in ${HOWMANY}
         do
-            BUCKETSRC=$NUMBER
+            BUCKETSRC=${NUMBER}
             Sync
-            IsError
             Check
+            IsError
             Reverse
             Copyback
-            IsError
             Check
+            IsError
             Clean
         done
     ;;
     "howmany")
         HowMany
-        echo -e "\nWe will plan to migrate this :"
-        echo -e ${HOWMANY}
     ;;
     "sync")
         Agree
@@ -324,6 +355,9 @@ case ${OPERATION} in
 	;;
     "check")
         Check
+    ;;
+    "iserror")
+        IsError
     ;;
     "reverse")
         Agree
