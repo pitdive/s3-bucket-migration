@@ -3,22 +3,25 @@
 # Disclaimer / Warning
 # Use this tool with precautions (review the config file created manually for a double-check) for your environment : it is NOT an official tool supported by Cloudian.
 # Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. So you are using it at your own risks and be aware of the restrictions.
-# v1.3.2b
+#
 # s3cmd/s4cmd
+VERSION="v1.3.3b"
 
 ## VARIABLES ##
 
 S3CMD_ONLY="/usr/bin/s3cmd"
 S4CMD_ONLY="/usr/bin/s4cmd"
+DEBUG=no  #yes or no
 CONFIG="s3cfg.conf"
 OPT="--config="${CONFIG}
 #CMD=${S3CMD}" "${OPT}
 S3CMD=${S3CMD_ONLY}" "${OPT}
 PROVIDER="s3://"
-# Rubrik parameter for the MPU
-MPU_SIZE=67108864
+# Rubrik parameter for the MPU & PART
+#MPU_SIZE=67108864
+MPU_SIZE=16777216
+NUMBER_PART=10000
 # Change the Admin API password if needed
-PASSWORD="public"
 SCRIPTNAME=$0
 HOWMANY=0
 
@@ -39,23 +42,25 @@ Agree()
     esac
 }
 
-# Function : Purge a bucket by using Admin API (avoid tombstone)
+# Purge a bucket by using Admin API (avoid tombstone)
 Purge()
 {
     echo -e "Purging the bucket : " $1 "\nNeed to connect to the cluster by using SSH and root access..."
-    NODE=`cat ${CONFIG} | grep "puppet" | awk -F'=' '{print $2}' | sed 's/ //g' `
-    if [ -z ${NODE} ]
+    node=`cat ${CONFIG} | grep "puppet" | awk -F'=' '{print $2}' | sed 's/ //g' `
+    password=`cat ${CONFIG} | grep "Syspassword" | awk -F'=' '{print $2}' | sed 's/ //g' `
+    if [ -z ${node} ]
     then
         echo -e "--> Error, the node name is not available in the config file. Can't use the ADMIN API <--"
         exit 1
      fi
-    CURL="curl --silent -X POST -ku sysadmin:"${PASSWORD}
-    CURL=${CURL}" 'https://localhost:19443/bucketops/purge?bucketName="$1" ' "
-    ssh root@${NODE} ${CURL}
+    local curl="curl --silent -X POST -ku sysadmin:"${password}
+    curl=${curl}" 'https://localhost:19443/bucketops/purge?bucketName="$1" ' "
+    ssh root@${node} ${curl}
     echo -e "\nWaiting a couple of seconds to apply changes ..."
     sleep 5
 }
 
+# Configure is needed to configure firstly everything for the migration
 Configure()
 {
     if [[ ! -f "${S3CMD_ONLY}" ]] || [[ ! -f "${S4CMD_ONLY}" ]]
@@ -68,7 +73,7 @@ Configure()
     read -r -p "Please provide the @IP or name of the Cloudian puppet master : " PUPPET
     echo -e "Adding config into : " ${CONFIG}
     echo "puppet="$PUPPET >> ${CONFIG}
-    ping -c 2 $PUPPET
+    ping -c 1 $PUPPET
     if [ ! $? -eq 0 ]
        then echo -e "\n--> Error the node seems not reachable. Please, check it and re-run the configuration. <--" && exit 1
     else
@@ -80,10 +85,14 @@ Configure()
             ssh-copy-id root@$PUPPET
         fi
     fi
+    read -r -p "Please provide the Sysadmin password for Admin API connection : " PASSWORD
+    echo "Syspassword="$PASSWORD >> ${CONFIG}
     echo -e "Configuration done.\n You can now proceed with the 'sync' command : \033[31m" ${SCRIPTNAME} "-c sync -b <bucketname>\033[0m"
     echo -e " OR with the automatic migration for multi-buckets with the command :  \033[31m" ${SCRIPTNAME} "-c auto -b <bucketname>\033[0m"
 }
 
+# Synchronisation between the SRC bucket and the DST bucket (tempo)
+# we have to do the job even for an empty bucket (there is no copy, just check + recreate the bucket)
 Sync()
 {
     echo -e "\033[31m--- Preparing to migrate the bucket : " ${BUCKETSRC} "--- \033[0m"
@@ -108,7 +117,7 @@ Sync()
     BUCKETTEMPO=${BUCKETSRC}"-tempo"
     echo -e "\nCreation of a temporary bucket to migrate firstly the data ... : " ${BUCKETTEMPO}
     ${S3CMD} mb ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
-    ${S3CMD} ls ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
+    #${S4CMD} ls ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
     if [ $? -eq 0 ]
     then
         echo -e "Bucket " ${BUCKETTEMPO} " is now available. Continuing ..."
@@ -116,6 +125,24 @@ Sync()
         echo -e "\n--> Error during the creation of the bucket : "${BUCKETTEMPO}" \n Check the EndPoint. <--" && exit 1
     fi
     echo -e "--- Synchronization from the bucket " ${BUCKETSRC} " to the bucket " ${BUCKETTEMPO} " : ---"
+    echo -e "Checking for big files and MPU size compatibility ..."
+    if [ ! -f ${LOGFILE}.ls.${BUCKETSRC} ]
+    then
+        ${S4CMD} ls ${PROVIDER}${BUCKETSRC} > ${LOGFILE}.ls.${BUCKETSRC}
+        value=`cat ${LOGFILE}.ls.${BUCKETSRC} | awk '{print $3}' | sort | head -n 1`
+        if [ -z "$value" ]
+        then
+            value=0
+        fi
+        let maxsize=${MPU_SIZE}*${NUMBER_PART}
+        if [ "$value" -lt "$maxsize" ]
+        then
+            echo -e ${number}" --> Biggest object SIZE is : " $value " which is smaller than the max size MPU x PART: "${maxsize}
+        else
+            echo -e ${number}" --> Error, the biggest object SIZE is : " $value " which is BIGGER than the max size MPU x PART: "${maxsize}" <--"
+            exit 1
+        fi
+    fi
     echo -e "\n*** Sync in progress  ***" >> ${LOGFILE} 2>&1
     ${S4CMD} dsync ${PROVIDER}${BUCKETSRC} ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1 &
     while [[ ! `ps -ef | grep ${S4CMD_ONLY} | grep ${BUCKETSRC}` = "" ]]
@@ -124,7 +151,7 @@ Sync()
         sleep 2
     done
     echo -e "\n*** Get the content of the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE}
-    ${S3CMD} ls ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
+    ${S4CMD} ls ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
 
     echo -e "\n*** Calculating objects and size ***" >> ${LOGFILE}
     echo -e "Size and number of objects for the buckets " ${BUCKETSRC} >> ${LOGFILE}
@@ -138,6 +165,7 @@ Sync()
     echo -e "Please use reverse command.\033[31m" ${SCRIPTNAME} "-c reverse -b "${BUCKETSRC}"\033[0m"
 }
 
+# No more used or might be use for a manual step
 Resync()
 {
     echo -e "\n\033[31m--- RE-Synchronization from the bucket " ${BUCKETSRC} " to the bucket " ${BUCKETTEMPO} " : --- \033[0m"
@@ -162,6 +190,7 @@ Resync()
     echo -e "Please use reverse command.\033[31m" ${SCRIPTNAME} "-c reverse -b "${BUCKETSRC}"\033[0m"
 }
 
+# Check the content of the two buckets
 Check()
 {
     echo -e "\n\033[31m--- Check the content of the buckets --- \033[0m"
@@ -179,6 +208,7 @@ Check()
     echo -e "Done. All checksums are in the log file : " ${LOGFILE}
 }
 
+# Preparation of the buckets before the copy-back
 Reverse()
 {
     echo -e "\n\033[31m--- Reverse the operations from the bucket : " ${BUCKETTEMPO} " ---\033[0m"
@@ -190,10 +220,11 @@ Reverse()
     ${S3CMD} --force rb ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
     echo -e "Creating a new bucket : " ${BUCKETSRC}
     ${S3CMD} mb ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
-    echo -e "Delete is finished, if there is no error, please Go Forward :-) ..."
+    echo -e "Delete is finished, if there is no error, please Go Forward ..."
     echo -e "Then, use the command : \033[31m" ${SCRIPTNAME} "-c copyback -b "${BUCKETSRC}"\033[0m"
 }
 
+# Copyback the object from the DST bucket to the SRC bucket
 Copyback()
 {
     echo -e "\n\033[31m--- Copy-back from the bucket : " ${BUCKETTEMPO} " to the bucket : " ${BUCKETSRC} " ---\033[0m"
@@ -219,6 +250,7 @@ Copyback()
     echo -e "Then, use the command : \033[31m" ${SCRIPTNAME} "-c clean -b "${BUCKETSRC}"\033[0m"
 }
 
+# Clean the DST bucket (tempo) and the logs not needed
 Clean()
 {
     echo -e "\n\033[31m--- Cleanup and deletion of non-necessary objects + bucket... ---\033[0m"
@@ -233,10 +265,12 @@ Clean()
     rm ${LOGFILE}.src ${LOGFILE}.tempo
     rm ${LOGFILE}.src.onlyhash ${LOGFILE}.tempo.onlyhash
     rm ${LOGFILE}.src.md5 ${LOGFILE}.tempo.md5
+    rm ${LOGFILE}.ls.${BUCKETSRC}
     echo -e "Job done. Nothing else to do."
     echo -e "\033[31mPlease resume the Archival Location matching the current migration \033[0m"
 }
 
+# Check if there is an error after a copy (MD5 calculations)
 IsError()
 {
     # First check : the #objects and size
@@ -265,16 +299,49 @@ IsError()
     fi
 }
 
+# List how many buckets we have to migrate with the same prefix
 HowMany()
 {
     BUCKET=`echo ${BUCKETSRC} | sed "s/.$//"`
-    HOWMANY=`${S3CMD} ls ${PROVIDER} | awk -F${PROVIDER} '{print $2 " "}' | grep $BUCKET`
+    # WE MUST USE S3CMD here ! S4CMD doesn't support the "root" as minimum parameter
+    HOWMANY=`${S3CMD} ls ${PROVIDER} | awk -F${PROVIDER} '{print $2 " "}' | grep ${BUCKET}`
     echo -e "\n- We will plan to migrate this : -\n"
-    for NUMBER in ${HOWMANY}
+    for number in ${HOWMANY}
     do
-        echo -e " --> " ${NUMBER}
+        echo -e " --> " ${number}
     done
     echo -e "\n- End of listing -"
+}
+
+# Due to Different MPU size for Rubrik, we must check the biggest object in the bucket and adjust the migration path
+Check_MPUsize()
+{
+    check=0
+    echo -e "\n- Checking MPU size for all the buckets ... -\n"
+    for number in ${HOWMANY}
+    do
+        ${S4CMD} ls ${PROVIDER}${number} > ${LOGFILE}.ls.${number}
+        value=`cat ${LOGFILE}.ls.${number} | awk '{print $3}' | sort | head -n 1`
+        if [ -z "$value" ]
+        then
+            value=0
+        fi
+        let maxsize=${MPU_SIZE}*${NUMBER_PART}
+        if [ "$value" -lt "$maxsize" ]
+        then
+            echo -e ${number}" --> Biggest object SIZE is : " $value " which is smaller than the max size MPU x PART: "${maxsize}
+        else
+            echo -e ${number}" --> Error, the biggest object SIZE is : " $value " which is BIGGER than the max size MPU x PART: "${maxsize}" <--"
+            check=1
+        fi
+    done
+    if [[ "$check" == 1 ]]
+    then
+        echo -e "You MUST migrate this attempt manually."
+        exit 1
+    else
+        echo -e "...should be ok\n"
+    fi
 }
 
 # Basic tests
@@ -285,13 +352,14 @@ do
   c) OPERATION=${OPTARG};;
   b) BUCKETSRC=${OPTARG};;
   esac
-done 
+done
 
 if [ -z ${OPERATION} ]
 	then
+	    echo -e "The version of the tool is : " $VERSION"\n"
 	    echo -e "\n--> Error in the command line. <--"
 	    echo -e "Use the format :" ${SCRIPTNAME} " -c <command> -b <bucketname>"
-        echo -e "<command> could be : configure , auto, howmany, sync , resync , check , reverse , copyback , clean\n"
+        echo -e "<command> could be : version, configure , auto, howmany, sync , resync , check , reverse , copyback , clean\n"
 	    exit 1
 	elif [ ! ${OPERATION} = "configure" ]
 	    then
@@ -313,7 +381,13 @@ then
     SECRET_KEY=`grep secret_key ${CONFIG} | awk -F'=' '{print $2}' | sed 's/ //g'`
     ENDPOINT=`grep host_base ${CONFIG} | awk -F'=' '{print $2}' | sed 's/ //g'`
     ENDPOINT='http://'${ENDPOINT}
-    S4CMD=${S4CMD_ONLY}" --recursive --secret-key="${SECRET_KEY}" --access-key="${ACCESS_KEY}" --endpoint-url="${ENDPOINT}" --multipart-split-size="${MPU_SIZE}" --max-singlepart-upload-size="${MPU_SIZE}
+    S4CMD=${S4CMD_ONLY}" --recursive --ignore-empty-source --secret-key="${SECRET_KEY}" --access-key="${ACCESS_KEY}" --endpoint-url="${ENDPOINT}" --multipart-split-size="${MPU_SIZE}" --max-singlepart-upload-size="${MPU_SIZE}" --max-singlepart-download-size="${MPU_SIZE}" --max-singlepart-copy-size="${MPU_SIZE}
+fi
+
+if [[ "${DEBUG}" == "yes" ]]
+then
+    S4CMD=${S4CMD}" --debug"
+    echo ${S4CMD}
 fi
 
 # Disclaimer
@@ -328,10 +402,11 @@ case ${OPERATION} in
     ;;
     "auto")
         HowMany
+        Check_MPUsize
         Agree
-        for NUMBER in ${HOWMANY}
+        for number in ${HOWMANY}
         do
-            BUCKETSRC=${NUMBER}
+            BUCKETSRC=${number}
             Sync
             Check
             IsError
