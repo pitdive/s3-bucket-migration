@@ -30,7 +30,7 @@ HOWMANY=0
 # Function : Must acknowledge to continue with the current operation
 Agree()
 {
-    read -r -t 30 -p "Do you want to continue (type : yes to continue,or anything else to abort) ? " answer
+    read -r -t 60 -p "Do you want to continue (type : yes to continue, or anything else to abort) ? " answer
     case $answer in
         "yes")
             echo -e "OK, let's Go !"
@@ -63,9 +63,6 @@ Purge()
 # Configure is needed to configure firstly everything for the migration
 Configure()
 {
-    if [[ ! -f "${S3CMD_ONLY}" ]] || [[ ! -f "${S4CMD_ONLY}" ]]
-        then echo -e "\n--> Error. You must install the necessary tools before using this script. <--" && exit 1
-    fi
     ${S3CMD} --configure --config ${CONFIG} --no-check-certificate --no-check-hostname --signature-v2
     if [ ! $? -eq 0 ]
        then echo -e "\n--> Error the config file CAN'T be set. Please, review the configuration. <--" && exit 1
@@ -87,8 +84,7 @@ Configure()
     fi
     read -r -p "Please provide the Sysadmin password for Admin API connection : " PASSWORD
     echo "Syspassword="$PASSWORD >> ${CONFIG}
-    echo -e "Configuration done.\n You can now proceed with the 'sync' command : \033[31m" ${SCRIPTNAME} "-c sync -b <bucketname>\033[0m"
-    echo -e " OR with the automatic migration for multi-buckets with the command :  \033[31m" ${SCRIPTNAME} "-c auto -b <bucketname>\033[0m"
+    echo -e "Configuration done.\n You can now continue for the automatic migration for multi-buckets with the command : \n \033[31m" ${SCRIPTNAME} "-c auto -b <bucketname>\033[0m"
 }
 
 # Synchronisation between the SRC bucket and the DST bucket (tempo)
@@ -96,8 +92,6 @@ Configure()
 Sync()
 {
     echo -e "\033[31m--- Preparing to migrate the bucket : " ${BUCKETSRC} "--- \033[0m"
-    echo -e "\n--> Before the sync, please, FORCE, on Rubrik side, the ArchiveLocation in 'Pause mode'"
-    echo -e "--> Before the sync, please, ENABLE, on Cloudian side, the policy you have chosen as the default policy"
     #Agree
     echo -e "Checking the source bucket : " ${BUCKETSRC}
     ${S3CMD} info ${PROVIDER}${BUCKETSRC} | grep ${BUCKETSRC}
@@ -117,7 +111,6 @@ Sync()
     BUCKETTEMPO=${BUCKETSRC}"-tempo"
     echo -e "\nCreation of a temporary bucket to migrate firstly the data ... : " ${BUCKETTEMPO}
     ${S3CMD} mb ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
-    #${S4CMD} ls ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
     if [ $? -eq 0 ]
     then
         echo -e "Bucket " ${BUCKETTEMPO} " is now available. Continuing ..."
@@ -162,7 +155,7 @@ Sync()
     ${S3CMD} du ${PROVIDER}${BUCKETSRC} > ${LOGFILE}.src && cat ${LOGFILE}.src
     ${S3CMD} du ${PROVIDER}${BUCKETTEMPO} > ${LOGFILE}.tempo && cat ${LOGFILE}.tempo
     echo -e "\nSync is finished."
-    echo -e "Please use reverse command.\033[31m" ${SCRIPTNAME} "-c reverse -b "${BUCKETSRC}"\033[0m"
+    echo -e "Next step --> reverse command.\033[31m" ${SCRIPTNAME} "-c reverse -b "${BUCKETSRC}"\033[0m"
 }
 
 # No more used or might be use for a manual step
@@ -187,7 +180,7 @@ Resync()
     ${S3CMD} du ${PROVIDER}${BUCKETTEMPO} >> ${LOGFILE} 2>&1
 
     echo -e "Re-Sync is finished."
-    echo -e "Please use reverse command.\033[31m" ${SCRIPTNAME} "-c reverse -b "${BUCKETSRC}"\033[0m"
+    echo -e "Next step --> reverse command.\033[31m" ${SCRIPTNAME} "-c reverse -b "${BUCKETSRC}"\033[0m"
 }
 
 # Check the content of the two buckets
@@ -221,7 +214,7 @@ Reverse()
     echo -e "Creating a new bucket : " ${BUCKETSRC}
     ${S3CMD} mb ${PROVIDER}${BUCKETSRC} >> ${LOGFILE} 2>&1
     echo -e "Delete is finished, if there is no error, please Go Forward ..."
-    echo -e "Then, use the command : \033[31m" ${SCRIPTNAME} "-c copyback -b "${BUCKETSRC}"\033[0m"
+    echo -e "Next step --> Copyback command. \033[31m" ${SCRIPTNAME} "-c copyback -b "${BUCKETSRC}"\033[0m"
 }
 
 # Copyback the object from the DST bucket to the SRC bucket
@@ -247,13 +240,13 @@ Copyback()
     ${S3CMD} du ${PROVIDER}${BUCKETSRC} > ${LOGFILE}.src && cat ${LOGFILE}.src
     ${S3CMD} du ${PROVIDER}${BUCKETTEMPO} > ${LOGFILE}.tempo && cat ${LOGFILE}.tempo
     echo -e "\nDone."
-    echo -e "Then, use the command : \033[31m" ${SCRIPTNAME} "-c clean -b "${BUCKETSRC}"\033[0m"
+    echo -e "Next step --> Clean-up command. \033[31m" ${SCRIPTNAME} "-c clean -b "${BUCKETSRC}"\033[0m"
 }
 
 # Clean the DST bucket (tempo) and the logs not needed
 Clean()
 {
-    echo -e "\n\033[31m--- Cleanup and deletion of non-necessary objects + bucket... ---\033[0m"
+    echo -e "\n\033[31m--- Clean-up and deletion of non-necessary objects + bucket... ---\033[0m"
     #Agree
     echo -e "\n*** Cleanup in progress from the bucket " ${BUCKETTEMPO} " ***" >> ${LOGFILE}
     date >> ${LOGFILE}
@@ -266,8 +259,7 @@ Clean()
     rm ${LOGFILE}.src.onlyhash ${LOGFILE}.tempo.onlyhash
     rm ${LOGFILE}.src.md5 ${LOGFILE}.tempo.md5
     rm ${LOGFILE}.ls.${BUCKETSRC}
-    echo -e "Job done. Nothing else to do."
-    echo -e "\033[31mPlease resume the Archival Location matching the current migration \033[0m"
+    echo -e "Job done\n"
 }
 
 # Check if there is an error after a copy (MD5 calculations)
@@ -337,10 +329,10 @@ Check_MPUsize()
     done
     if [[ "$check" == 1 ]]
     then
-        echo -e "You MUST migrate this attempt manually."
+        echo -e "You MUST migrate those buckets manually."
         exit 1
     else
-        echo -e "...should be ok\n"
+        echo -e "...looks good \n"
     fi
 }
 
@@ -353,6 +345,10 @@ do
   b) BUCKETSRC=${OPTARG};;
   esac
 done
+
+if [[ ! -f "${S3CMD_ONLY}" ]] || [[ ! -f "${S4CMD_ONLY}" ]]
+    then echo -e "\n--> Error. You must install the necessary tools s3cmd and s4cmd before using this script. <--" && exit 1
+fi
 
 if [ -z ${OPERATION} ]
 	then
@@ -387,7 +383,6 @@ fi
 if [[ "${DEBUG}" == "yes" ]]
 then
     S4CMD=${S4CMD}" --debug"
-    echo ${S4CMD}
 fi
 
 # Disclaimer
@@ -416,11 +411,15 @@ case ${OPERATION} in
             IsError
             Clean
         done
+        echo -e "Nothing else to do."
+        echo -e "\033[31mPlease resume the Archival Location matching the current migration \033[0m"
     ;;
     "howmany")
         HowMany
     ;;
     "sync")
+        echo -e "\n--> Before the sync, please, FORCE, on Rubrik side, the ArchiveLocation in 'Pause mode'"
+        echo -e "--> Before the sync, please, ENABLE, on Cloudian side, the policy you have chosen as the default policy"
         Agree
         Sync
     ;;
@@ -445,6 +444,8 @@ case ${OPERATION} in
 	"clean")
 	    Agree
         Clean
+        echo -e "Nothing else to do."
+        echo -e "\033[31mPlease resume the Archival Location matching the current migration \033[0m"
 	;;
     *)
         echo -e "\n--> Error in the command line. Operation not recognized. Please check it and retry again. <--\n"
