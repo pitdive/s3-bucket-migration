@@ -102,7 +102,7 @@ Update()
     wget ${URL} -O ${SCRIPTNAME}
     if [ $? = 0 ]
     then
-        echo -e "\n Script upgraded to " `grep 'VERSION=' ${SCRIPTNAME}|head -1` "\nKeeping the oldest version with the name : " ${SCRIPTNAME}.oldversion
+        echo -e "\n Keeping the oldest version with the name : "${SCRIPTNAME}.oldversion "\n Script upgraded to " `grep 'VERSION=' ${SCRIPTNAME}|head -1`
         chmod +x ${SCRIPTNAME}
         chmod 644 ${SCRIPTNAME}.oldversion
     else
