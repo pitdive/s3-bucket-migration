@@ -95,13 +95,23 @@ Configure()
 Update()
 {
     echo -e "Trying to retrieve the latest version of the script with the default network access ..."
-    cd ~
     if [ -f ${SCRIPTNAME} ]
-        then
-            mv ${SCRIPTNAME} ${SCRIPTNAME}.oldversion
-     fi
-     wget ${URL} -O ${SCRIPTNAME}
-     chmod +x ${SCRIPTNAME}
+    then
+        mv ${SCRIPTNAME} ${SCRIPTNAME}.oldversion
+    fi
+    wget ${URL} -O ${SCRIPTNAME}
+    if [ $? = 0 ]
+    then
+        echo -e "\n Script upgraded. Keeping the oldest version with the name : " ${SCRIPTNAME}.oldversion
+        chmod +x ${SCRIPTNAME}
+        chmod -f 544 ${SCRIPTNAME}.oldversion
+    else
+        echo -e "\n--> Error during the download. Please check and retry ... <--"
+        echo -e "No change made. Keeping existing version"
+        rm ${SCRIPTNAME}
+        mv ${SCRIPTNAME}.oldversion ${SCRIPTNAME}
+        exit 1
+    fi
 }
 
 # Synchronisation between the SRC bucket and the DST bucket (tempo)
