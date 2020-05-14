@@ -5,16 +5,15 @@
 # Cloudian can NOT be involved for any bugs or misconfiguration due to this tool. So you are using it at your own risks and be aware of the restrictions.
 #
 # s3cmd/s4cmd
-VERSION="v1.3.3b"
+VERSION="v1.3.5"
 
 ## VARIABLES ##
 
-S3CMD_ONLY="/usr/bin/s3cmd"
-S4CMD_ONLY="/usr/bin/s4cmd"
+S3CMD_ONLY=`which s3cmd`
+S4CMD_ONLY=`which s4cmd`
 DEBUG=no  #yes or no
 CONFIG="s3cfg.conf"
 OPT="--config="${CONFIG}
-#CMD=${S3CMD}" "${OPT}
 S3CMD=${S3CMD_ONLY}" "${OPT}
 PROVIDER="s3://"
 # Rubrik parameter for the MPU & PART
@@ -24,6 +23,7 @@ NUMBER_PART=10000
 # Change the Admin API password if needed
 SCRIPTNAME=$0
 HOWMANY=0
+URL="https://raw.githubusercontent.com/pitdive/s3-bucket-migration/s4cmd/s3-bucket-migration.sh"
 
 ## CODE ##
 
@@ -37,6 +37,10 @@ Agree()
         ;;
         *)
             echo -e "Well, aborting the script."
+            for number in ${HOWMANY}
+            do
+                rm ${LOGFILE}.ls.${number}
+            done
             exit 0
         ;;
     esac
@@ -85,6 +89,19 @@ Configure()
     read -r -p "Please provide the Sysadmin password for Admin API connection : " PASSWORD
     echo "Syspassword="$PASSWORD >> ${CONFIG}
     echo -e "Configuration done.\n You can now continue for the automatic migration for multi-buckets with the command : \n \033[31m" ${SCRIPTNAME} "-c auto -b <bucketname>\033[0m"
+}
+
+# Update this script to the latest version
+Update()
+{
+    echo -e "Trying to retrieve the latest version of the script with the default network access ..."
+    cd ~
+    if [ -f ${SCRIPTNAME} ]
+        then
+            mv ${SCRIPTNAME} ${SCRIPTNAME}.oldversion
+     fi
+     wget ${URL} -O ${SCRIPTNAME}
+     chmod +x ${SCRIPTNAME}
 }
 
 # Synchronisation between the SRC bucket and the DST bucket (tempo)
@@ -297,7 +314,7 @@ HowMany()
     BUCKET=`echo ${BUCKETSRC} | sed "s/.$//"`
     # WE MUST USE S3CMD here ! S4CMD doesn't support the "root" as minimum parameter
     HOWMANY=`${S3CMD} ls ${PROVIDER} | awk -F${PROVIDER} '{print $2 " "}' | grep ${BUCKET}`
-    echo -e "\n- We will plan to migrate this : -\n"
+    echo -e "\n- We plan to migrate this : -\n"
     for number in ${HOWMANY}
     do
         echo -e " --> " ${number}
@@ -336,8 +353,15 @@ Check_MPUsize()
     fi
 }
 
+Helpmessage()
+{
+    echo -e "The version of the tool is : " $VERSION"\n"
+	echo -e "Use the format :" ${SCRIPTNAME} " -c <command> -b <bucketname>"
+    echo -e "<command> could be : configure , update, auto, howmany [or a manual operation like : sync , resync , check , reverse , copyback , clean] \n"
+}
+
 # Basic tests
-while getopts c:b: option
+while getopts h:c:b: option
 do 
   case "${option}"
   in
@@ -352,18 +376,18 @@ fi
 
 if [ -z ${OPERATION} ]
 	then
-	    echo -e "The version of the tool is : " $VERSION"\n"
 	    echo -e "\n--> Error in the command line. <--"
-	    echo -e "Use the format :" ${SCRIPTNAME} " -c <command> -b <bucketname>"
-        echo -e "<command> could be : version, configure , auto, howmany, sync , resync , check , reverse , copyback , clean\n"
+	    Helpmessage
 	    exit 1
-	elif [ ! ${OPERATION} = "configure" ]
+	elif [[ ! ${OPERATION} = "configure" ]] && [[ ! ${OPERATION} = "update" ]]
 	    then
-	        if [ -z ${BUCKETSRC} ]
-	            then echo "--> Error in the command line. bucket name is empty / missing ... <--" &&  exit 1
-	        fi
+	        if [[ -z ${BUCKETSRC} ]]
+	            then echo "--> Error in the command line. bucket name is empty / missing ... <--"
+	            Helpmessage
+	            exit 1
+            fi
 	        if [ ! -f ${CONFIG} ]
-                then echo -e "--> Error the config file is not present, please use : " ${SCRIPTNAME} " -c configure <--" && exit 1
+                then echo -e "--> Error the config file is not present, firstly please use : " ${SCRIPTNAME} " -c configure <--" && exit 1
             fi
 fi
 
@@ -395,6 +419,12 @@ case ${OPERATION} in
     "configure")
         Configure
     ;;
+    "version")
+        echo -e "The version of the tool is : " $VERSION"\n"
+    ;;
+    "update")
+        Update
+    ;;
     "auto")
         HowMany
         Check_MPUsize
@@ -418,7 +448,7 @@ case ${OPERATION} in
         HowMany
     ;;
     "sync")
-        echo -e "\n--> Before the sync, please, FORCE, on Rubrik side, the ArchiveLocation in 'Pause mode'"
+        echo -e "\n--> Before the sync, please, FORCE, on Rubrik side, the Archive Location in 'Pause mode'"
         echo -e "--> Before the sync, please, ENABLE, on Cloudian side, the policy you have chosen as the default policy"
         Agree
         Sync
@@ -448,7 +478,7 @@ case ${OPERATION} in
         echo -e "\033[31mPlease resume the Archival Location matching the current migration \033[0m"
 	;;
     *)
-        echo -e "\n--> Error in the command line. Operation not recognized. Please check it and retry again. <--\n"
+        echo -e "\n--> Error in the command line. Operation not recognized. Please check it and retry. <--\n"
         exit 2
     ;;
 esac
