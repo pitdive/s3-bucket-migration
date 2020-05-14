@@ -104,7 +104,7 @@ Update()
     then
         echo -e "\n Script upgraded. Keeping the oldest version with the name : " ${SCRIPTNAME}.oldversion
         chmod +x ${SCRIPTNAME}
-        chmod -f 544 ${SCRIPTNAME}.oldversion
+        chmod 644 ${SCRIPTNAME}.oldversion
     else
         echo -e "\n--> Error during the download. Please check and retry ... <--"
         echo -e "No change made. Keeping existing version"
